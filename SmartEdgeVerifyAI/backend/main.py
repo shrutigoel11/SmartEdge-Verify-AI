@@ -1,10 +1,9 @@
-/**
- * main.py
- *
- * Local FastAPI backend server mimicking the Datalake 3.0 server pipeline.
- * Persists synchronizations in a local SQLite file (backend_datalake.db)
- * and renders a glassmorphic dashboard to monitor real-time sync activities and purges.
- */
+# main.py
+#
+# Local FastAPI backend server mimicking the Datalake 3.0 server pipeline.
+# Persists synchronizations in a local SQLite file (backend_datalake.db)
+# and renders a glassmorphic dashboard to monitor real-time sync activities and purges.
+
 
 import os
 import sqlite3

@@ -43,3 +43,8 @@ ios/
 build/
 *.keystore
 .env
+
+# python & database
+__pycache__/
+*.db
+
