@@ -100,14 +100,18 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
           style={styles.keyboardContainer}
         >
           <View style={styles.innerContainer}>
-            {/* Header / Logo Area */}
-            <View style={styles.logoSection}>
+            {/* Header / Logo Area (Long-press logo section for Debug screen) */}
+            <TouchableOpacity
+              activeOpacity={1}
+              onLongPress={() => navigation.navigate('Debug')}
+              style={styles.logoSection}
+            >
               <View style={styles.logoCircle}>
                 <Text style={styles.logoText}>SE</Text>
               </View>
               <Text style={styles.title}>SmartEdge Verify</Text>
               <Text style={styles.subtitle}>Datalake 3.0 Field Authentication</Text>
-            </View>
+            </TouchableOpacity>
 
             {/* Main Login Card */}
             <GlassCard style={styles.card}>

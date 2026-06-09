@@ -2,14 +2,17 @@
  * SyncService.ts
  *
  * Coordinates database synchronization when internet access becomes available.
- * Uploads unsynced records and triggers zero-fill cryptographic purging on sensitive biometrics.
+ * Performs real HTTP POST requests to the configurable local API simulator
+ * and logs every sync attempt into the SQLite audit table.
  */
 
 import { NetworkService } from './NetworkService';
 import { AttendanceDAO } from '../database/AttendanceDAO';
 import { GPSLogsDAO } from '../database/GPSLogsDAO';
 import { VerificationDAO } from '../database/VerificationDAO';
+import { SyncAuditLogsDAO } from '../database/SyncAuditLogsDAO';
 import { BackupService } from './BackupService';
+import { ConfigUtil } from '../utils/ConfigUtil';
 
 export interface SyncStatusReport {
   attendanceSyncedCount: number;
@@ -47,7 +50,7 @@ export class SyncService {
   }
 
   private static notifyListeners(status: string): void {
-    this.listeners.forEach(cb => {
+    this.listeners.forEach((cb) => {
       try {
         cb(status);
       } catch (e) {
@@ -57,7 +60,7 @@ export class SyncService {
   }
 
   /**
-   * Synchronizes all unsynced data to the backend (simulated for Phase 1) and executes secure purging.
+   * Synchronizes all unsynced data to the local Datalake 3.0 server.
    */
   public static async syncAll(): Promise<SyncStatusReport> {
     if (this.isSyncingInProgress) {
@@ -88,27 +91,37 @@ export class SyncService {
         return report;
       }
 
-      addLog('Starting synchronization sequence...');
+      const baseUrl = ConfigUtil.getApiBaseUrl();
+      addLog(`Initializing sync sequence to server: ${baseUrl}...`);
 
       // 1. Sync Attendance Logs
       const unsyncedAttendance = AttendanceDAO.getUnsyncedLogs();
       if (unsyncedAttendance.length > 0) {
         addLog(`Found ${unsyncedAttendance.length} unsynced attendance records.`);
         for (const log of unsyncedAttendance) {
-          addLog(`Uploading check-in/out: Employee ${log.employee_id}, Date ${log.date}...`);
+          addLog(`Uploading punch event: Employee ${log.employee_id}, Date ${log.date}...`);
           
-          // Simulate network upload delay
-          await new Promise(r => setTimeout(r, 600));
-
+          let responseCode: number | null = null;
           try {
-            // Simulated AWS API endpoint POST
-            // In a production setup: await axios.post('https://api.datalake30.aws/v1/attendance', log);
-            addLog(`AWS Response 200 OK for Attendance ID: ${log.id}`);
-            AttendanceDAO.markAsSynced(log.id);
-            report.attendanceSyncedCount++;
-          } catch (uploadError) {
-            addLog(`Error uploading Attendance ID: ${log.id}. Storing failure metadata.`);
+            const res = await fetch(`${baseUrl}/attendance`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(log),
+            });
+            responseCode = res.status;
+
+            if (res.status === 200) {
+              addLog(`Server responded 200 OK for Attendance ID: ${log.id}`);
+              AttendanceDAO.markAsSynced(log.id);
+              SyncAuditLogsDAO.insertAudit('attendance', log.id, log.retry_count + 1, 'SUCCESS', 200);
+              report.attendanceSyncedCount++;
+            } else {
+              throw new Error(`HTTP Error Status: ${res.status}`);
+            }
+          } catch (uploadError: any) {
+            addLog(`Error syncing Attendance ID ${log.id}: ${uploadError.message || uploadError}`);
             AttendanceDAO.logFailure(log.id);
+            SyncAuditLogsDAO.insertAudit('attendance', log.id, log.retry_count + 1, 'FAILED', responseCode);
           }
         }
       } else {
@@ -120,18 +133,29 @@ export class SyncService {
       if (unsyncedGPS.length > 0) {
         addLog(`Found ${unsyncedGPS.length} unsynced background GPS logs.`);
         for (const log of unsyncedGPS) {
-          addLog(`Uploading GPS ping: Lat ${log.latitude}, Lon ${log.longitude}...`);
+          addLog(`Uploading GPS waypoint: Lat ${log.latitude.toFixed(5)}, Lon ${log.longitude.toFixed(5)}...`);
           
-          await new Promise(r => setTimeout(r, 300));
-
+          let responseCode: number | null = null;
           try {
-            // Simulated AWS API endpoint POST
-            addLog(`AWS Response 200 OK for GPS Log ID: ${log.id}`);
-            GPSLogsDAO.markAsSynced(log.id);
-            report.gpsSyncedCount++;
-          } catch (uploadError) {
-            addLog(`Error uploading GPS Log ID: ${log.id}. Storing failure metadata.`);
+            const res = await fetch(`${baseUrl}/gps`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(log),
+            });
+            responseCode = res.status;
+
+            if (res.status === 200) {
+              addLog(`Server responded 200 OK for GPS Log ID: ${log.id}`);
+              GPSLogsDAO.markAsSynced(log.id);
+              SyncAuditLogsDAO.insertAudit('gps', log.id, log.retry_count + 1, 'SUCCESS', 200);
+              report.gpsSyncedCount++;
+            } else {
+              throw new Error(`HTTP Error Status: ${res.status}`);
+            }
+          } catch (uploadError: any) {
+            addLog(`Error syncing GPS Log ID ${log.id}: ${uploadError.message || uploadError}`);
             GPSLogsDAO.logFailure(log.id);
+            SyncAuditLogsDAO.insertAudit('gps', log.id, log.retry_count + 1, 'FAILED', responseCode);
           }
         }
       } else {
@@ -145,19 +169,30 @@ export class SyncService {
         for (const log of unsyncedVerification) {
           addLog(`Uploading verification summary: Employee ${log.employee_id}, Confidence ${log.confidence.toFixed(4)}...`);
           
-          await new Promise(r => setTimeout(r, 800));
-
+          let responseCode: number | null = null;
           try {
-            // Simulated AWS API endpoint POST (payload includes face vector, which is deleted locally next)
-            addLog(`AWS Response 200 OK for Verification ID: ${log.id}`);
-            
-            addLog(`Executing Zero-Fill Purge on sqlite cache block for ID: ${log.id}`);
-            // Overwrites face cache in DB with 0.0000...
-            VerificationDAO.markAsSyncedAndPurge(log.id);
-            
-            report.verificationPurgedCount++;
-          } catch (uploadError) {
-            addLog(`Error uploading Verification ID: ${log.id}. Purge deferred for security.`);
+            // Package payload including cached embedding (if available before purge)
+            const res = await fetch(`${baseUrl}/verification`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(log),
+            });
+            responseCode = res.status;
+
+            if (res.status === 200) {
+              addLog(`Server responded 200 OK for Verification ID: ${log.id}`);
+              addLog(`Executing Zero-Fill Purge on sqlite cache block for ID: ${log.id}`);
+              
+              // Zero-fills database embedding and marks synced=1
+              VerificationDAO.markAsSyncedAndPurge(log.id);
+              SyncAuditLogsDAO.insertAudit('verification', log.id, 1, 'SUCCESS', 200);
+              report.verificationPurgedCount++;
+            } else {
+              throw new Error(`HTTP Error Status: ${res.status}`);
+            }
+          } catch (uploadError: any) {
+            addLog(`Error syncing Verification ID ${log.id}: ${uploadError.message || uploadError}`);
+            SyncAuditLogsDAO.insertAudit('verification', log.id, 1, 'FAILED', responseCode);
           }
         }
       } else {
@@ -169,7 +204,7 @@ export class SyncService {
       await BackupService.createBackup();
       addLog('Backup file written and encrypted successfully.');
 
-      addLog('Synchronization completed successfully. Local storage is sanitized.');
+      addLog('Synchronization sequence completed. Local database is sanitized.');
     } catch (error: any) {
       addLog(`Sync process interrupted by error: ${error.message || error}`);
     } finally {

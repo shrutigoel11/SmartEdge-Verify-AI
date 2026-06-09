@@ -20,6 +20,7 @@ import { NetworkService } from './src/services/NetworkService';
 import { SyncService } from './src/services/SyncService';
 import { LocationService } from './src/services/LocationService';
 import { BackgroundGPS } from './src/services/BackgroundGPS';
+import { ConfigUtil } from './src/utils/ConfigUtil';
 
 export default function App() {
   const [initialized, setInitialized] = useState(false);
@@ -30,6 +31,10 @@ export default function App() {
       try {
         console.log('[App] Starting SmartEdgeVerifyAI bootstrap...');
         
+        // 0. Load custom server IP endpoints
+        await ConfigUtil.init();
+        console.log('[App] Server configuration cached.');
+
         // 1. Initialize local SQLite Database & Run Migrations
         // Simply calling getDb() executes schema creation synchronously
         const db = SQLiteClient.getDb();

@@ -38,5 +38,8 @@ yarn-error.*
 *.tsbuildinfo
 
 # generated native folders
-/ios
-/android
+android/
+ios/
+build/
+*.keystore
+.env

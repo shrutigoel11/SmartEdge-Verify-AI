@@ -91,10 +91,41 @@ export class SQLiteClient {
         );
       `);
 
+      // 5. Create sync_audit_logs table
+      db.execSync(`
+        CREATE TABLE IF NOT EXISTS sync_audit_logs (
+          id VARCHAR(50) PRIMARY KEY,
+          record_type VARCHAR(30) NOT NULL,
+          record_id VARCHAR(50) NOT NULL,
+          attempt_count INTEGER DEFAULT 1,
+          timestamp VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          response_code INTEGER
+        );
+      `);
+
       console.log('SQLiteClient migrations run successfully. All tables initialized.');
     } catch (error) {
       console.error('SQLite migrations failure:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Drops/Wipes all transactional tables for testing.
+   */
+  public static clearAllTables(): void {
+    try {
+      const db = this.getDb();
+      db.execSync('DELETE FROM attendance_logs;');
+      db.execSync('DELETE FROM gps_logs;');
+      db.execSync('DELETE FROM verification_logs;');
+      db.execSync('DELETE FROM sync_audit_logs;');
+      db.execSync('DELETE FROM employees;');
+      console.log('[SQLiteClient] All tables wiped.');
+    } catch (e) {
+      console.error('[SQLiteClient] Failed to wipe tables:', e);
+      throw e;
     }
   }
 }

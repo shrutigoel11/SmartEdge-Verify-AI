@@ -75,6 +75,18 @@ export class VerificationDAO {
   }
 
   /**
+   * Retrieves all verification logs.
+   */
+  public static getAllLogs(): VerificationLog[] {
+    const db = SQLiteClient.getDb();
+    const rows = db.getAllSync<any>(
+      'SELECT * FROM verification_logs ORDER BY timestamp DESC;'
+    );
+
+    return rows.map(r => this.mapRow(r));
+  }
+
+  /**
    * Executes the SECURE PURGE on the target record.
    * Sets face_embedding_cache = NULL and synced = 1.
    * Overwrites with zero bytes on-disk first.
